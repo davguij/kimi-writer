@@ -31,7 +31,7 @@ MAX_ITERATIONS = 300
 TOKEN_LIMIT = 200000
 COMPRESSION_THRESHOLD = 180000  # Trigger compression at 90% of limit
 MODEL_NAME = os.getenv("MOONSHOT_MODEL_NAME", "kimi-k2-thinking")
-BACKUP_INTERVAL = 50  # Save backup summary every N iterations
+BACKUP_INTERVAL = 10  # Save backup summary every N iterations
 
 
 def load_context_from_file(file_path: str) -> str:

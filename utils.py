@@ -3,79 +3,136 @@ Utility functions for the Kimi Writing Agent.
 """
 
 import json
+from typing import Any, Callable, Dict, List
+
 import httpx
-from typing import List, Dict, Any, Callable
+import tiktoken
 
 
-def estimate_token_count(base_url: str, api_key: str, model: str, messages: List[Dict]) -> int:
+def _estimate_tokens_with_tiktoken(model: str, messages: List[Dict]) -> int:
+    """
+    Estimate token count using tiktoken library as a fallback.
+    This is a simplified version based on the OpenAI cookbook.
+    """
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        print(
+            f"Warning: Model '{model}' not found for tiktoken. Using cl100k_base encoding."
+        )
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    num_tokens = 0
+    for message in messages:
+        num_tokens += 4  # A rough estimate for message overhead
+        for key, value in message.items():
+            if not value:
+                continue
+
+            content_to_encode = ""
+            if key == "tool_calls":
+                try:
+                    # For tool calls, encode the function name and arguments
+                    for tool_call in value:
+                        content_to_encode += tool_call.get("function", {}).get(
+                            "name", ""
+                        )
+                        content_to_encode += tool_call.get("function", {}).get(
+                            "arguments", ""
+                        )
+                except Exception:
+                    content_to_encode += str(value)  # Fallback
+            else:
+                content_to_encode = str(value)
+
+            num_tokens += len(encoding.encode(content_to_encode))
+
+            if key == "name":
+                num_tokens += 1  # Additional token for the name
+
+    num_tokens += 3  # A rough estimate for priming the reply
+    return num_tokens
+
+
+def estimate_token_count(
+    base_url: str, api_key: str, model: str, messages: List[Dict]
+) -> int:
     """
     Estimate the token count for the given messages using the Moonshot API.
-    
+
     Note: Token estimation uses api.moonshot.ai (not .cn)
-    
+
     Args:
         base_url: The base URL for the API (will be converted to .ai for token endpoint)
         api_key: The API key for authentication
         model: The model name
         messages: List of message dictionaries
-        
+
     Returns:
         Total token count
     """
     # Convert messages to serializable format (remove non-serializable objects)
     serializable_messages = []
     for msg in messages:
-        if hasattr(msg, 'model_dump'):
+        if hasattr(msg, "model_dump"):
             # OpenAI SDK message object
             msg_dict = msg.model_dump()
         elif isinstance(msg, dict):
             msg_dict = msg.copy()
         else:
             msg_dict = {"role": "assistant", "content": str(msg)}
-        
+
         # Clean up the message to only include serializable fields
         clean_msg = {}
-        if 'role' in msg_dict:
-            clean_msg['role'] = msg_dict['role']
-        if 'content' in msg_dict and msg_dict['content']:
-            clean_msg['content'] = msg_dict['content']
-        if 'name' in msg_dict:
-            clean_msg['name'] = msg_dict['name']
-        if 'tool_calls' in msg_dict and msg_dict['tool_calls']:
-            clean_msg['tool_calls'] = msg_dict['tool_calls']
-        if 'tool_call_id' in msg_dict:
-            clean_msg['tool_call_id'] = msg_dict['tool_call_id']
-            
+        if "role" in msg_dict:
+            clean_msg["role"] = msg_dict["role"]
+        if "content" in msg_dict and msg_dict["content"]:
+            clean_msg["content"] = msg_dict["content"]
+        if "name" in msg_dict:
+            clean_msg["name"] = msg_dict["name"]
+        if "tool_calls" in msg_dict and msg_dict["tool_calls"]:
+            clean_msg["tool_calls"] = msg_dict["tool_calls"]
+        if "tool_call_id" in msg_dict:
+            clean_msg["tool_call_id"] = msg_dict["tool_call_id"]
+
         serializable_messages.append(clean_msg)
-    
-    # Both token estimation and chat use api.moonshot.ai
-    token_base_url = base_url
-    
-    # Make the API call
-    with httpx.Client(
-        base_url=token_base_url,
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=30.0
-    ) as client:
-        response = client.post(
-            "/tokenizers/estimate-token-count",
-            json={
-                "model": model,
-                "messages": serializable_messages
-            }
+
+    try:
+        # Both token estimation and chat use api.moonshot.ai
+        token_base_url = base_url
+
+        # Make the API call
+        with httpx.Client(
+            base_url=token_base_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30.0,
+        ) as client:
+            response = client.post(
+                "/tokenizers/estimate-token-count",
+                json={"model": model, "messages": serializable_messages},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", {}).get("total_tokens", 0)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 405 or "openrouter.ai" in base_url:
+            print(
+                f"Warning: Token estimation API endpoint not available (or not applicable for {base_url}). Falling back to local tiktoken estimation."
+            )
+            return _estimate_tokens_with_tiktoken(model, serializable_messages)
+        else:
+            raise e
+    except httpx.RequestError:
+        print(
+            f"Warning: Could not connect to token estimation endpoint. Falling back to local tiktoken estimation."
         )
-        response.raise_for_status()
-        data = response.json()
-        return data.get("data", {}).get("total_tokens", 0)
-
-
-    ]
+        return _estimate_tokens_with_tiktoken(model, serializable_messages)
 
 
 def get_tool_definitions() -> List[Dict[str, Any]]:
     """
     Returns the tool definitions in the format expected by kimi-k2-thinking.
-    
+
     Returns:
         List of tool definition dictionaries
     """
@@ -88,14 +145,11 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The search query"
-                        }
+                        "query": {"type": "string", "description": "The search query"}
                     },
-                    "required": ["query"]
-                }
-            }
+                    "required": ["query"],
+                },
+            },
         },
         {
             "type": "function",
@@ -107,12 +161,12 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                     "properties": {
                         "project_name": {
                             "type": "string",
-                            "description": "The name for the project folder (will be sanitized for filesystem compatibility)"
+                            "description": "The name for the project folder (will be sanitized for filesystem compatibility)",
                         }
                     },
-                    "required": ["project_name"]
-                }
-            }
+                    "required": ["project_name"],
+                },
+            },
         },
         {
             "type": "function",
@@ -124,46 +178,47 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                     "properties": {
                         "filename": {
                             "type": "string",
-                            "description": "The name of the markdown file to write (should end in .md)"
+                            "description": "The name of the markdown file to write (should end in .md)",
                         },
                         "content": {
                             "type": "string",
-                            "description": "The content to write to the file"
+                            "description": "The content to write to the file",
                         },
                         "mode": {
                             "type": "string",
                             "enum": ["create", "append", "overwrite"],
-                            "description": "The write mode: 'create' for new files, 'append' to add to existing, 'overwrite' to replace"
-                        }
+                            "description": "The write mode: 'create' for new files, 'append' to add to existing, 'overwrite' to replace",
+                        },
                     },
-                    "required": ["filename", "content", "mode"]
-                }
-            }
+                    "required": ["filename", "content", "mode"],
+                },
+            },
         },
         {
             "type": "function",
             "function": {
                 "name": "compress_context",
                 "description": "INTERNAL TOOL - This is automatically called by the system when token limit is approached. You should not call this manually. It compresses the conversation history to save tokens.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            }
-        }
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
     ]
 
 
 def get_tool_map() -> Dict[str, Callable]:
     """
     Returns a mapping of tool names to their implementation functions.
-    
+
     Returns:
         Dictionary mapping tool name strings to callable functions
     """
-    from tools import write_file_impl, create_project_impl, compress_context_impl, web_search_impl
-    
+    from tools import (
+        compress_context_impl,
+        create_project_impl,
+        web_search_impl,
+        write_file_impl,
+    )
+
     return {
         "create_project": create_project_impl,
         "write_file": write_file_impl,
@@ -175,7 +230,7 @@ def get_tool_map() -> Dict[str, Callable]:
 def get_system_prompt() -> str:
     """
     Returns the system prompt for the writing agent.
-    
+
     Returns:
         System prompt string
     """
@@ -190,18 +245,9 @@ You are Kimi, a sophisticated creative and technical writing assistant from Moon
 *   **Research:** Perform web searches to gather information and data for your writing (`web_search`).
 *   **Context Management:** Automatically compress conversation history to stay within token limits (`compress_context`).
 
-# The Planning Phase: A Blueprint for Excellence
-
-For any substantial work (e.g., a multi-chapter book, a detailed report, a long story), you MUST first create a plan or outline.
-
-1.  **Propose an Outline:** Create a detailed outline in a markdown file (e.g., `outline.md`). This should include chapter/section titles and a brief description of what each part will cover.
-2.  **Seek User Approval:** Present the outline to the user for feedback and approval.
-3.  **Proceed with Writing:** Once the user approves the plan, you can begin writing the content, one file at a time.
-
-This planning step ensures that you and the user are aligned on the structure and content before you invest time in writing.
-
 # General Best Practices
 
+*   **Research extensively:** As part of your creation process, either for outlines or actual publishable content, fiction or non-fiction, make sure you use the `web_search` tool as a foundation to your work. This is critical for non-fiction, and also a strong recommendation for fiction, in order to provide factual substance to the stories where needed.
 *   **Be Specific:** The more detailed your request, the better the result. Provide context, desired tone, style, and length.
 *   **Iterate:** Break down large projects into smaller, manageable parts (e.g., chapters, sections).
 *   **Provide Context:** For ongoing projects, provide the previous sections of your work to ensure consistency.
@@ -220,10 +266,9 @@ As a master storyteller, you should:
 
 *Example Fiction Workflow:*
 1.  **`create_project(project_name='My Sci-Fi Novel')`**
-2.  **`write_file(filename='outline.md', content='...detailed chapter-by-chapter outline...', mode='create')`**
-3.  (Wait for user approval of the outline)
-4.  **`write_file(filename='chapter_01.md', content='...full text of chapter 1...', mode='create')`**
-5.  **`write_file(filename='chapter_02.md', content='...full text of chapter 2...', mode='create')`**
+2.  **`web_search(query='effects of zero gravity in the human body')`**
+3.  **`write_file(filename='chapter_01.md', content='...full text of chapter 1...', mode='create')`**
+4.  **`write_file(filename='chapter_02.md', content='...full text of chapter 2...', mode='create')`**
 
 # Non-Fiction Writing Guide
 
@@ -238,12 +283,9 @@ As an expert technical writer and researcher, you should:
 *Example Non-Fiction Workflow:*
 1.  **`create_project(project_name='History of AI')`**
 2.  **`web_search(query='history of artificial intelligence')`**
-3.  **`write_file(filename='outline.md', content='...detailed outline of the report sections...', mode='create')`**
-4.  (Wait for user approval of the outline)
-5.  **`write_file(filename='01_early_concepts.md', content='...detailed history of early AI concepts...', mode='create')`**
-6.  **`write_file(filename='02_the_rise_of_deep_learning.md', content='...detailed history of deep learning...', mode='create')`**
+3.  **`write_file(filename='01_early_concepts.md', content='...detailed history of early AI concepts...', mode='create')`**
+4.  **`write_file(filename='02_the_rise_of_deep_learning.md', content='...detailed history of deep learning...', mode='create')`**
 
 # Final Reminder
 
 You have a 64K token context window per response. Use it to its full potential. Write rich, detailed, and complete content. A good short story is 5,000-10,000 words. A good chapter is 3,000-5,000 words. A good report is comprehensive and well-researched. Write what the work needs to be excellent."""
-

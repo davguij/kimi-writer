@@ -1,7 +1,7 @@
 """
 Web search tool implementation
 """
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 def web_search_impl(query: str) -> str:
     """
@@ -13,6 +13,9 @@ def web_search_impl(query: str) -> str:
     Returns:
         A string containing the search results, formatted for display.
     """
-    with DDGS() as ddgs:
-        results = [r for r in ddgs.text(query, max_results=5)]
-        return "\n".join([f"[{i+1}] \"{r['title']}\"\n{r['body']}\nURL: {r['href']}" for i, r in enumerate(results)])
+    try:
+        with DDGS() as ddgs:
+            results = [r for r in ddgs.text(query, max_results=5)]
+            return "\n".join([f"[{i+1}] \"{r['title']}\"\n{r['body']}\nURL: {r['href']}" for i, r in enumerate(results)])
+    except Exception as e:
+        raise RuntimeError(f"Web search failed: {e}") from e

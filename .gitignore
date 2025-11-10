@@ -27,9 +27,6 @@ virtualenv/
 *.sublime-project
 *.sublime-workspace
 
-# Generated content (AI-created projects)
-output/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -42,3 +39,5 @@ Thumbs.db
 # Temporary files
 .context_summary_*.md
 
+# Generated content (belongs in a different repo)
+output/
