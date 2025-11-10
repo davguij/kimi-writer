@@ -69,6 +69,9 @@ def estimate_token_count(base_url: str, api_key: str, model: str, messages: List
         return data.get("data", {}).get("total_tokens", 0)
 
 
+    ]
+
+
 def get_tool_definitions() -> List[Dict[str, Any]]:
     """
     Returns the tool definitions in the format expected by kimi-k2-thinking.
@@ -77,6 +80,23 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
         List of tool definition dictionaries
     """
     return [
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Performs a web search using a search engine to gather information, articles, and data on a specified topic. Use this to conduct research before writing.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
         {
             "type": "function",
             "function": {
@@ -142,12 +162,13 @@ def get_tool_map() -> Dict[str, Callable]:
     Returns:
         Dictionary mapping tool name strings to callable functions
     """
-    from tools import write_file_impl, create_project_impl, compress_context_impl
+    from tools import write_file_impl, create_project_impl, compress_context_impl, web_search_impl
     
     return {
         "create_project": create_project_impl,
         "write_file": write_file_impl,
-        "compress_context": compress_context_impl
+        "compress_context": compress_context_impl,
+        "web_search": web_search_impl,
     }
 
 
@@ -176,6 +197,7 @@ CRITICAL WRITING GUIDELINES:
 - Use 'create' mode with full content rather than creating stubs you'll append to later
 
 Best practices:
+- Use the 'web_search' tool to conduct research before writing, especially for non-fiction topics or when the user's request requires up-to-date information.
 - Always start by creating a project folder using create_project
 - Break large works into multiple files (chapters, stories, etc.)
 - Use descriptive filenames (e.g., "chapter_01.md", "story_the_last_star.md")
