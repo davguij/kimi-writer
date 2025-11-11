@@ -21,7 +21,6 @@ load_dotenv()
 from tools.compression import compress_context_impl
 from utils import (
     estimate_token_count,
-    get_tool_map,
 )
 
 # Constants
@@ -175,6 +174,31 @@ def get_editor_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
+                "name": "list_files",
+                "description": "Lists all files in the active project folder. Use this to see what files are available to edit.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Reads the content of a file from the active project folder. ALWAYS read a file before editing it to see its current content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "The name of the file to read",
+                        }
+                    },
+                    "required": ["filename"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "web_search",
                 "description": "Performs a web search to verify facts, check grammar rules, research style guidelines, or gather reference information for editing decisions.",
                 "parameters": {
@@ -190,7 +214,7 @@ def get_editor_tool_definitions() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "create_project",
-                "description": "Creates a new project folder in the 'output' directory for organizing edited content. This should be called first before writing any edited files.",
+                "description": "Creates a new project folder in the 'output' directory for organizing edited content. Can also be used to set an existing project folder as active.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -279,8 +303,10 @@ You need to refine the formatting of the book. We will later be using the **Pand
 
 # Core Capabilities
 
-*   **Project Management:** Create project folders to organize your edited work (`create_project`).
-*   **File I/O:** Write edited content, editorial notes, or revision reports to markdown files (`write_file`).
+*   **Project Management:** Create or set project folders to organize your edited work (`create_project`).
+*   **File Discovery:** List all files in the project folder to see what's available (`list_files`).
+*   **File Reading:** Read existing manuscript files to understand their content before editing (`read_file`).
+*   **File Writing:** Write edited content, editorial notes, or revision reports to markdown files (`write_file`).
 *   **Research:** Perform web searches to verify facts, check grammar rules, research style guidelines, understand target audiences, or gather reference information (`web_search`).
 *   **Context Management:** Automatically compress conversation history to stay within token limits (`compress_context`).
 
@@ -334,22 +360,26 @@ Before making any editorial decisions:
 # Editorial Workflow
 
 ## Initial Assessment
-1. **`web_search(query='target audience for [genre/topic]')`** - Understand the market
-2. **`web_search(query='best-selling books in [category]')`** - Learn from success stories
-3. **Review & Analyze:** Read through the entire manuscript with market context in mind
-4. **Define Strategy:** Determine what changes will maximize commercial and artistic success
+1. **Set the active project:** Use `create_project` with the existing project name to make it active
+2. **`list_files()`** - See what files exist in the project
+3. **`web_search(query='target audience for [genre/topic]')`** - Understand the market
+4. **`web_search(query='best-selling books in [category]')`** - Learn from success stories
+5. **Read files:** Use `read_file` to read each manuscript file and understand the content
+6. **Define Strategy:** Determine what changes will maximize commercial and artistic success
 
 ## Developmental Editing
-1. **`create_project(project_name='[Book Title] - Editorial Project')`**
-2. **Big Picture Assessment:** Structure, pacing, character/concept development
-3. **`write_file(filename='editorial_assessment.md', content='...comprehensive analysis...', mode='create')`**
-4. **Target Audience Alignment:** Ensure content speaks to the right readers
-5. **Series Potential:** Identify opportunities for expansion
+1. **Big Picture Assessment:** Structure, pacing, character/concept development
+2. **`write_file(filename='editorial_assessment.md', content='...comprehensive analysis...', mode='create')`**
+3. **Target Audience Alignment:** Ensure content speaks to the right readers
+4. **Series Potential:** Identify opportunities for expansion
 
-## Content Editing
-1. **Chapter-by-Chapter:** Enhance each section for maximum impact
-2. **Edit files in place:** Use `mode='overwrite'` to replace existing files - **`write_file(filename='chapter_01.md', content='...fully edited chapter...', mode='overwrite')`**
-3. **Never create new "_edited" files** - Always overwrite the original manuscript files directly
+## Content Editing (CRITICAL: Read Before Editing!)
+1. **`list_files()`** - Identify all manuscript files
+2. **For each file:**
+   - **`read_file(filename='chapter_01.md')`** - Read the current content first
+   - **Edit and improve** the content based on editorial standards
+   - **`write_file(filename='chapter_01.md', content='...fully edited chapter...', mode='overwrite')`** - Overwrite with edited version
+3. **NEVER create new "_edited" files** - Always overwrite the original manuscript files directly
 4. **Value Optimization:** Ensure every page provides value and engagement
 5. **Research Verification:** Use `web_search` to fact-check and enhance content
 6. **Formatting:** Apply proper Markdown formatting for Pandoc conversion
@@ -365,7 +395,12 @@ Before making any editorial decisions:
 2. **`write_file(filename='market_positioning.md', content='...recommendations for Amazon KDP...', mode='create')`**
 3. **`write_file(filename='series_potential.md', content='...ideas for follow-up books...', mode='create')`**
 
-**CRITICAL RULE: When editing existing manuscript files (chapters, content files), ALWAYS use `mode='overwrite'` to edit them in place. NEVER create new files with "_edited" or similar suffixes. Only use `mode='create'` for brand new editorial notes, reports, and supplementary documents.**
+**CRITICAL EDITING RULES:**
+1. **ALWAYS use `list_files()` first** to see what files exist in the project
+2. **ALWAYS use `read_file(filename='...')` before editing** to see the current content
+3. **ALWAYS use `mode='overwrite'` when editing existing manuscript files** to edit them in place
+4. **NEVER create new files with "_edited" or similar suffixes** - overwrite the originals
+5. **Only use `mode='create'` for brand new editorial notes, reports, and supplementary documents**
 
 # Quality Benchmarks
 
@@ -426,9 +461,28 @@ def main():
         messages.append({"role": "user", "content": user_prompt})
         print(f"\n📝 Editing Task: {user_prompt}\n")
 
-    # Get tool definitions and mapping
+    # Get tool definitions and create tool mapping
     tools = get_editor_tool_definitions()
-    tool_map = get_tool_map()
+
+    # Import tool implementations
+    from tools import (
+        compress_context_impl,
+        create_project_impl,
+        list_files_impl,
+        read_file_impl,
+        web_search_impl,
+        write_file_impl,
+    )
+
+    # Create tool map for the editor
+    tool_map = {
+        "create_project": create_project_impl,
+        "write_file": write_file_impl,
+        "read_file": read_file_impl,
+        "list_files": list_files_impl,
+        "compress_context": compress_context_impl,
+        "web_search": web_search_impl,
+    }
 
     print("=" * 60)
     print("Starting Kimi Editor Agent")
