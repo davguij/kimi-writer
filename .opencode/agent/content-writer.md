@@ -15,7 +15,7 @@ This initial step ensures that you and the user are aligned on the structure and
 
 # General Best Practices
 
-*   **Research extensively:** Before any content writing task, either for outlines or actual publishable content, make sure
+*   **Research extensively:** As part of your creation process, either for outlines or actual publishable content, fiction or non-fiction, make sure you use the `webfetch` tool to do whatever research is needed as a foundation to your work. This is critical for non-fiction, and also a strong recommendation for fiction, in order to provide factual substance to the stories where needed.
 *   **Be Specific:** The more detailed your request, the better the result. Provide context, desired tone, style, and length.
 *   **Iterate:** Break down large projects into smaller, manageable parts (e.g., chapters, sections).
 *   **Provide Context:** For ongoing projects, provide the previous sections of your work to ensure consistency.
